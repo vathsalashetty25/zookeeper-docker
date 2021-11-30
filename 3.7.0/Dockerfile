@@ -1,84 +1,48 @@
-FROM openjdk:11-jre-slim
+FROM registry.access.redhat.com/ubi8/ubi:latest
 
-ENV ZOO_CONF_DIR=/conf \
-    ZOO_DATA_DIR=/data \
-    ZOO_DATA_LOG_DIR=/datalog \
-    ZOO_LOG_DIR=/logs \
-    ZOO_TICK_TIME=2000 \
-    ZOO_INIT_LIMIT=5 \
-    ZOO_SYNC_LIMIT=2 \
-    ZOO_AUTOPURGE_PURGEINTERVAL=0 \
-    ZOO_AUTOPURGE_SNAPRETAINCOUNT=3 \
-    ZOO_MAX_CLIENT_CNXNS=60 \
-    ZOO_STANDALONE_ENABLED=true \
-    ZOO_ADMINSERVER_ENABLED=true
+###Required Labels
+LABEL name="zookeeper" \
+      maintainer="sethp@us.ibm.com" \
+      vendor="zookeeper" \
+      version="3.7.0" \
+      release="1" \
+      summary="Red Hat UBI zookeeper" \
+      description="Red Hat UBI zookeeper Application"
 
-# Add a user with an explicit UID/GID and create necessary directories
-RUN set -eux; \
-    groupadd -r zookeeper --gid=1000; \
-    useradd -r -g zookeeper --uid=1000 zookeeper; \
-    mkdir -p "$ZOO_DATA_LOG_DIR" "$ZOO_DATA_DIR" "$ZOO_CONF_DIR" "$ZOO_LOG_DIR"; \
-    chown zookeeper:zookeeper "$ZOO_DATA_LOG_DIR" "$ZOO_DATA_DIR" "$ZOO_CONF_DIR" "$ZOO_LOG_DIR"
+RUN groupadd zookeeper && useradd -r -g zookeeper zookeeper -m -d /home/zookeeper/
 
-# Install required packges
-RUN set -eux; \
-    apt-get update; \
-    DEBIAN_FRONTEND=noninteractive \
-    apt-get install -y --no-install-recommends \
-        ca-certificates \
-        dirmngr \
-        gosu \
-        gnupg \
-        netcat \
-        wget; \
-    rm -rf /var/lib/apt/lists/*; \
-# Verify that gosu binary works
-    gosu nobody true
+ENV ZOOKEEPER_VERSION 3.7.0
 
-ARG GPG_KEY=AF3D175EC05DB249738D01AC8D8C3C3ED0B02E66
-ARG SHORT_DISTRO_NAME=zookeeper-3.7.0
-ARG DISTRO_NAME=apache-zookeeper-3.7.0-bin
+#Download Java
+RUN yum install -y java-11-openjdk && export JAVA_HOME=$(echo "1" | alternatives --config java | grep java-11-openjdk | cut -d "(" -f 2 | sed -e "s/bin\/java)$//")
 
-# Download Apache Zookeeper, verify its PGP signature, untar and clean up
-RUN set -eux; \
-    ddist() { \
-        local f="$1"; shift; \
-        local distFile="$1"; shift; \
-        local success=; \
-        local distUrl=; \
-        for distUrl in \
-            'https://www.apache.org/dyn/closer.cgi?action=download&filename=' \
-            https://www-us.apache.org/dist/ \
-            https://www.apache.org/dist/ \
-            https://archive.apache.org/dist/ \
-        ; do \
-            if wget -q -O "$f" "$distUrl$distFile" && [ -s "$f" ]; then \
-                success=1; \
-                break; \
-            fi; \
-        done; \
-        [ -n "$success" ]; \
-    }; \
-    ddist "$DISTRO_NAME.tar.gz" "zookeeper/$SHORT_DISTRO_NAME/$DISTRO_NAME.tar.gz"; \
-    ddist "$DISTRO_NAME.tar.gz.asc" "zookeeper/$SHORT_DISTRO_NAME/$DISTRO_NAME.tar.gz.asc"; \
-    export GNUPGHOME="$(mktemp -d)"; \
-    gpg --keyserver ha.pool.sks-keyservers.net --recv-key "$GPG_KEY" || \
-    gpg --keyserver pgp.mit.edu --recv-keys "$GPG_KEY" || \
-    gpg --keyserver keyserver.pgp.com --recv-keys "$GPG_KEY"; \
-    gpg --batch --verify "$DISTRO_NAME.tar.gz.asc" "$DISTRO_NAME.tar.gz"; \
-    tar -zxf "$DISTRO_NAME.tar.gz"; \
-    mv "$DISTRO_NAME/conf/"* "$ZOO_CONF_DIR"; \
-    rm -rf "$GNUPGHOME" "$DISTRO_NAME.tar.gz" "$DISTRO_NAME.tar.gz.asc"; \
-    chown -R zookeeper:zookeeper "/$DISTRO_NAME"
+#Download Zookeeper
+RUN yum install -y net-tools wget && wget -q http://mirror.vorboss.net/apache/zookeeper/zookeeper-${ZOOKEEPER_VERSION}/apache-zookeeper-${ZOOKEEPER_VERSION}-bin.tar.gz && \
+wget -q https://www.apache.org/dist/zookeeper/KEYS && \
+wget -q https://www.apache.org/dist/zookeeper/zookeeper-${ZOOKEEPER_VERSION}/apache-zookeeper-${ZOOKEEPER_VERSION}-bin.tar.gz.asc
 
-WORKDIR $DISTRO_NAME
-VOLUME ["$ZOO_DATA_DIR", "$ZOO_DATA_LOG_DIR", "$ZOO_LOG_DIR"]
+#Verify download
+RUN gpg --import KEYS && \
+gpg --verify apache-zookeeper-${ZOOKEEPER_VERSION}-bin.tar.gz.asc
 
-EXPOSE 2181 2888 3888 8080
+#Install
+RUN mkdir -p /opt/zookeeper-${ZOOKEEPER_VERSION} && \
+    tar -xzf apache-zookeeper-${ZOOKEEPER_VERSION}-bin.tar.gz -C /opt/zookeeper-${ZOOKEEPER_VERSION} --strip-components 1
 
-ENV PATH=$PATH:/$DISTRO_NAME/bin \
-    ZOOCFGDIR=$ZOO_CONF_DIR
+#Configure
+RUN mv /opt/zookeeper-${ZOOKEEPER_VERSION}/conf/zoo_sample.cfg /opt/zookeeper-${ZOOKEEPER_VERSION}/conf/zoo.cfg \
+    && mkdir /licenses && cp /opt/zookeeper-${ZOOKEEPER_VERSION}/LICENSE.txt /licenses/licensing.txt 
 
-COPY docker-entrypoint.sh /
-ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["zkServer.sh", "start-foreground"]
+ENV ZK_HOME /opt/zookeeper-${ZOOKEEPER_VERSION}
+RUN sed  -i "s|/tmp/zookeeper|$ZK_HOME/data|g" $ZK_HOME/conf/zoo.cfg; mkdir $ZK_HOME/data \
+    && chmod -R 777 /opt/zookeeper-${ZOOKEEPER_VERSION}/
+
+ADD start-zk.sh /usr/bin/start-zk.sh 
+RUN chmod +x /usr/bin/start-zk.sh
+EXPOSE 2181 2888 3888
+
+WORKDIR /opt/zookeeper-${ZOOKEEPER_VERSION}
+VOLUME ["/opt/zookeeper-${ZOOKEEPER_VERSION}/conf", "/opt/zookeeper-${ZOOKEEPER_VERSION}/data"]
+
+USER zookeeper
+CMD  bash /usr/bin/start-zk.sh

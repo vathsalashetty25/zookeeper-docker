@@ -28,9 +28,13 @@ RUN wget https://github.com/tianon/gosu/releases/download/1.14/gosu-ppc64el
 RUN cp gosu-ppc64el /usr/bin
 
 RUN mv /usr/bin/gosu-ppc64el gosu
+
+RUN cd /usr/bin
+
+RUN ls
 # Verify that gosu binary works
 
-#RUN gosu nobody true
+
 
 
 
@@ -50,10 +54,6 @@ wget -q https://downloads.apache.org/zookeeper/zookeeper-${ZOOKEEPER_VERSION}/ap
 #Verify download
 RUN gpg --import KEYS && \
 gpg --verify apache-zookeeper-${ZOOKEEPER_VERSION}-bin.tar.gz.asc
-
-#Install
-RUN mkdir -p /opt/zookeeper-${ZOOKEEPER_VERSION} && \
-    tar -xzf apache-zookeeper-${ZOOKEEPER_VERSION}-bin.tar.gz -C /opt/zookeeper-${ZOOKEEPER_VERSION} --strip-components 1
 
 
 ARG SHORT_DISTRO_NAME=zookeeper-3.7.0
@@ -87,6 +87,8 @@ RUN set -eux; \
     rm -rf "$GNUPGHOME" "$DISTRO_NAME.tar.gz" "$DISTRO_NAME.tar.gz.asc"; \
     chown -R zookeeper:zookeeper "/$DISTRO_NAME"
 
+#RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 WORKDIR $DISTRO_NAME
 VOLUME ["$ZOO_DATA_DIR", "$ZOO_DATA_LOG_DIR", "$ZOO_LOG_DIR"]
 
@@ -98,5 +100,3 @@ ENV PATH=$PATH:/$DISTRO_NAME/bin \
 COPY docker-entrypoint.sh /
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["zkServer.sh", "start-foreground"]
-
-

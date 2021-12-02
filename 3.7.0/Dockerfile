@@ -27,9 +27,10 @@ RUN wget https://github.com/tianon/gosu/releases/download/1.14/gosu-ppc64el
 
 RUN cp gosu-ppc64el /usr/bin
 
-RUN mv /usr/bin/gosu-ppc64el gosu
+RUN mv /usr/bin/gosu-ppc64el /usr/bin/gosu
 
-RUN cd /usr/bin
+RUN chmod 777 /usr/bin/gosu
+
 
 RUN ls
 # Verify that gosu binary works
